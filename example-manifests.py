@@ -16,7 +16,7 @@ from rtk.task import DownloadIIIFImageTask, KrakenAltoCleanUpCommand, ClearFileC
     DownloadIIIFManifestTask, YALTAiCommand, KrakenRecognizerCommand, ExtractZoneAltoCommand
 from rtk import utils
 
-batches = utils.batchify_textfile("manifests.txt", batch_size=2)
+batches = utils.batchify_textfile("../rtk/manifest_test.txt", batch_size=1)
 from re import sub
 
 
@@ -52,15 +52,16 @@ for batch in batches:
     print("[Task] Segment")
     yaltai = YALTAiCommand(
         dl.output_files,
-        binary="yaltaienv/bin/yaltai",
-        device="cuda:0",
-        yolo_model="GallicorporaSegmentation.pt",
-        raise_on_error=True,
-        allow_failure=False,
-        multiprocess=4,  # GPU Memory // 5gb
+        binary="/home/tmoins/Documents/rtk/yaltaienv/bin/yaltai",
+        device="cpu",
+        yolo_model="models/CapricciosaN.pt",
+        raise_on_error=False,
+        allow_failure=True,
+        multiprocess=1,
         check_content=False
     )
     yaltai.process()
+
 
     # Clean-up the relative filepath of Kraken Serialization
     print("[Task] Clean-Up Serialization")
@@ -71,13 +72,14 @@ for batch in batches:
     print("[Task] OCR")
     kraken = KrakenRecognizerCommand(
         yaltai.output_files,
-        binary="yaltaienv/bin/kraken",
+        binary="/home/tmoins/Documents/rtk/yaltaienv/bin/yaltai",
         device="cpu",
-        model="catmus-medieval.mlmodel",
-        multiprocess=8,  # GPU Memory // 3gb
-        check_content=False
+        model="models/catmus-medieval.mlmodel",
+        multiprocess=1,
+        check_content=True
     )
     kraken.process()
+
 
     print("[Task] Remove images")
     # cf = ClearFileCommand(dl.output_files, multiprocess=4).process()

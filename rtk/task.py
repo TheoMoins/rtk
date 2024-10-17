@@ -544,7 +544,7 @@ class YALTAiCommand(KrakenLikeCommand):
             raise ValueError(f"Unknown YOLOv8 model `{yolo_model}`")
 
         cmd = (f"{binary} kraken --verbose "
-               f"{' --raise-on-error ' if kwargs.get('raise_on_error') else ''} --device {device} R "
+               f"{' --raise-on-error ' if kwargs.get('raise_on_error') else ''} --device {device} --alto R "
                f"segment -y {yolo_model}").split(" ")
 
         if line_model:
