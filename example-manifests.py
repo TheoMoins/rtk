@@ -19,6 +19,17 @@ from rtk import utils
 batches = utils.batchify_textfile("../rtk/manifest_test.txt", batch_size=1)
 from re import sub
 
+import torch
+torch.manual_seed(0)
+
+import numpy as np
+np.random.seed(0)
+
+import random
+random.seed(0)
+
+path_local = "/home/tmoins/Documents/rtk/"
+path_serveur = "/home/theo/miniconda3/env/"
 
 def kebab(s):
     return sub(r"https?-", "", '-'.join(
@@ -52,12 +63,13 @@ for batch in batches:
     print("[Task] Segment")
     yaltai = YALTAiCommand(
         dl.output_files,
-        binary="/home/tmoins/Documents/rtk/yaltaienv/bin/yaltai",
+        binary=path_serveur+"yaltaienv/bin/yaltai",
         device="cpu",
         yolo_model="models/CapricciosaN.pt",
+        line_model="models/baseline_ms_medieval.mlmodel",
         raise_on_error=False,
-        allow_failure=True,
-        multiprocess=1,
+        allow_failure=False,
+        multiprocess=10,
         check_content=False
     )
     yaltai.process()
@@ -72,11 +84,11 @@ for batch in batches:
     print("[Task] OCR")
     kraken = KrakenRecognizerCommand(
         yaltai.output_files,
-        binary="/home/tmoins/Documents/rtk/yaltaienv/bin/yaltai",
+        binary=path_serveur+"yaltaienv/bin/kraken",
         device="cpu",
         model="models/catmus-medieval.mlmodel",
         multiprocess=1,
-        check_content=True
+        check_content=False
     )
     kraken.process()
 
