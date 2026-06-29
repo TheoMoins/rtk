@@ -16,7 +16,14 @@ from rtk.task import DownloadIIIFImageTask, KrakenAltoCleanUpCommand, ClearFileC
     DownloadIIIFManifestTask, YALTAiCommand, KrakenRecognizerCommand, ExtractZoneAltoCommand
 from rtk import utils
 
-batches = utils.batchify_textfile("../rtk/manifest_test.txt", batch_size=1)
+
+path_local = "/home/tmoins/Documents/WPC1/rtk/"
+path_serveur = "/home/theo/miniconda3/envs/"
+
+run_on_server = False
+path = path_serveur if run_on_server else path_local
+
+batches = utils.batchify_textfile(path+"manifest_test.txt", batch_size=1)
 from re import sub
 
 import torch
@@ -27,9 +34,6 @@ np.random.seed(0)
 
 import random
 random.seed(0)
-
-path_local = "/home/tmoins/Documents/rtk/"
-path_serveur = "/home/theo/miniconda3/env/"
 
 def kebab(s):
     return sub(r"https?-", "", '-'.join(
@@ -63,7 +67,7 @@ for batch in batches:
     print("[Task] Segment")
     yaltai = YALTAiCommand(
         dl.output_files,
-        binary=path_serveur+"yaltaienv/bin/yaltai",
+        binary=path+"yaltaienv/bin/yaltai",
         device="cpu",
         yolo_model="models/CapricciosaN.pt",
         line_model="models/baseline_ms_medieval.mlmodel",
@@ -84,7 +88,7 @@ for batch in batches:
     print("[Task] OCR")
     kraken = KrakenRecognizerCommand(
         yaltai.output_files,
-        binary=path_serveur+"yaltaienv/bin/kraken",
+        binary=path+"yaltaienv/bin/kraken",
         device="cpu",
         model="models/catmus-medieval.mlmodel",
         multiprocess=1,

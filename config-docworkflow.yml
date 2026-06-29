@@ -1,0 +1,44 @@
+# DocWorkflow configuration consumed by example-docworkflow-iiif.py
+#
+# This file is loaded with docworkflow's own `src.cli.config.Config`. All relative
+# paths below (model weights, etc.) are resolved from the DocWorkflow repository root,
+# which the example script makes the current working directory before loading models.
+#
+# The `data:` block is intentionally omitted: RTK supplies the inputs (IIIF images),
+# so DocWorkflow never reads its own dataset paths here.
+
+run_name: "rtk-iiif-docworkflow"
+device: "cpu"          # set to "cuda" if a GPU is available
+use_wandb: false
+save_image: true
+reading_order: "dbscan"
+
+tasks:
+  layout:
+    type: YoloLayout
+    config:
+      model_path: "src/tasks/layout/LA-training/catmus_seg_s_16_10/weights/best.pt"
+      batch_size: 16
+      img_size: 640
+
+  line:
+    type: KrakenLine
+    config:
+      model_path: "src/tasks/line/models/baseline_ms_medieval.mlmodel"
+      text_direction: "horizontal-lr"
+
+  htr:
+    type: VLMLineHTR
+    config:
+      model_name: "ENC-PSL/Medusa0.1Line-4B"
+      device_map: "auto"
+      max_new_tokens: 128
+      line_batch_size: 16
+      max_pixels: 401408
+      prompt: >
+        Transcribe the handwritten text in this line image.
+        Keep abbreviations as written, do not expand them.
+        Preserve the original word segmentation.
+        Use only u and i, never v and j, regardless of the original or modern usage.
+        Do not record allographic variants, use standard letter forms.
+        Output ONLY the transcription.
