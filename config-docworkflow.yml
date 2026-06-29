@@ -8,7 +8,7 @@
 # so DocWorkflow never reads its own dataset paths here.
 
 run_name: "rtk-iiif-docworkflow"
-device: "cpu"          # set to "cuda" if a GPU is available
+device: "cuda"          # set to "cuda" if a GPU is available
 use_wandb: false
 save_image: true
 reading_order: "dbscan"
@@ -17,14 +17,15 @@ tasks:
   layout:
     type: YoloLayout
     config:
-      model_path: "src/tasks/layout/LA-training/catmus_seg_s_16_10/weights/best.pt"
-      batch_size: 16
+      model_path: "src/tasks/layout/models/yolo26s_layout_640px_16bs_50e.pt"
       img_size: 640
 
   line:
-    type: KrakenLine
+    type: YoloLine
     config:
-      model_path: "src/tasks/line/models/baseline_ms_medieval.mlmodel"
+      model_path: "src/tasks/line/models/yolo26n_seg_line_640px_16bs_10e.pt"
+      img_size: 640
+      batch_size: 4
       text_direction: "horizontal-lr"
 
   htr:
