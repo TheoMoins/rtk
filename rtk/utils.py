@@ -3,39 +3,50 @@ from typing import Tuple, List, Optional, Dict, Union, Any, Callable
 import os
 import hashlib
 import csv
+import time
 from pathlib import Path
+from itertools import islice
 # Non std lib
 import fitz  # PyMuPDF
 import requests
 import lxml.etree as ET
 import cases
 import unidecode
-from xml.sax.saxutils import escape
 
+
+def clean_kebab(string: str, fallback: Optional[Dict] = None) -> str:
+    return cases.to_kebab(unidecode.unidecode(string))
 
 
 def split_batches(inputs: List[str], splits: int) -> List[List[str]]:
-    """ Split a number of inputs into N splits, more or less even ones"""
+    """ Split a number of inputs into N splits, more or less even ones
+
+
+    >>> split_batches(list(range(1,9)), 4) == [[1, 2], [3, 4], [5, 6], [7, 8]]
+    True
+    >>> split_batches(list(range(1,10)), 4) == [[1, 2], [3, 4], [5, 6], [7, 8, 9]]
+    True
+    >>> split_batches(list(range(1,5)), 5) == [[1], [2], [3], [4]]
+    True
+
+    """
     if splits <= 0:
         raise ValueError("Number of splits must be greater than zero.")
-    
+
     # Calculate the base size of each split and the number of splits that need an extra element
-    base_size = len(inputs) // splits
-    extra_elements = len(inputs) % splits
-    
-    result = []
-    start = 0
-    
-    for i in range(splits):
-        end = start + base_size + (1 if i < extra_elements else 0)
-        result.append(inputs[start:end])
-        start = end
-    
-    return result
+    length = len(inputs)
+    sizes = [(length + i) // splits for i in range(splits)]  # distribute remainder
+    it = iter(inputs)
+    batches = [list(islice(it, size)) for size in sizes]
+    return [b for b in batches if b]
 
 
 
-def download(url: str, target: str, options: Optional[Dict[str, str]] = None) -> Optional[str]:
+def download(
+        url: str,
+        target: str,
+        options: Optional[Dict[str, str]] = None,
+        with_raise: bool = False) -> Optional[str]:
     """ Download the element at [URL] and saves it at [TARGET] using binary writing. [OPTIONS] are fed to the headers
 
     :param url: A url
@@ -45,7 +56,8 @@ def download(url: str, target: str, options: Optional[Dict[str, str]] = None) ->
     """
     headers = {}
     headers.update(options or {})
-    os.makedirs(os.path.dirname(target), exist_ok=True)
+    if os.path.dirname(target).strip():
+        os.makedirs(os.path.dirname(target), exist_ok=True)
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
@@ -53,11 +65,20 @@ def download(url: str, target: str, options: Optional[Dict[str, str]] = None) ->
             handle.write(response.content)
         return target
     except Exception as E:
+        if with_raise:
+            raise E
         print(E)
         return None
 
 
-def download_iiif_image(url: str, target: str, options: Optional[Dict[str, Union[str, int]]] = None) -> str:
+def download_iiif_image(
+        url: str,
+        target: str,
+        options: Optional[Dict[str, Union[str, int]]] = None,
+        retries: int = 1,
+        retries_no_options: int = 1,
+        time_between_retries: int = 30,
+) -> str:
     """ Download the IIIF image at [URL] and saves it at [TARGET] using binary writing. [OPTIONS] are mostly fed to the
         headers except for `max_width` and `max_height` keys which are used for limiting the image size (instead of
         full size image). You cannot use max_width and max_height at the same time.
@@ -66,23 +87,50 @@ def download_iiif_image(url: str, target: str, options: Optional[Dict[str, Union
     :param target: A destination path
     :param options: A key-value dict for the request headers
     :return: The path where the file was saved or None if the download failed.
+
     """
+    orig_url = ""+url
     if options.get("max_height"):
-        url = url.replace("/full/full/", f"/full/,{options['max_height']}/")
+        url = url.replace("/full/full/", f"/full/,{options['max_height']}/").replace(
+            "/full/max/", f"/full/,{options['max_height']}/")
     elif options.get("max_width"):
-        url = url.replace("/full/full/", f"/full/{options['max_width']},/")
-    return download(
-        url,
-        target,
-        {
-            key: val
-            for key, val in options.items()
-            if key not in {"max_width", "max_height"}
-        }
-    )
+        url = url.replace("/full/full/", f"/full/{options['max_width']},/").replace(
+            "/full/max/", f"/full/{options['max_width']},/")
+
+    attempt = 0
+    while attempt < retries:
+        try:
+            return download(
+                url, target,
+                {key: val for key, val in options.items() if key not in {"max_width", "max_height"}},
+                with_raise=True
+            )
+        except Exception as E:
+            attempt += 1
+            if attempt >= retries and not retries_no_options:
+                print(E)
+                return None
+            elif attempt < retries:
+                time.sleep(time_between_retries)
+    if not retries_no_options:
+        raise Exception("There should have been something to return here")
+    attempt = 0
+    while attempt < retries_no_options:
+        try:
+            return download(
+                orig_url, target,
+                {key: val for key, val in options.items() if key not in {"max_width", "max_height"}},
+                with_raise=True
+            )
+        except Exception as E:
+            attempt += 1
+            if attempt >= retries_no_options:
+                print(E)
+                return None
+            time.sleep(time_between_retries)
 
 
-def download_iiif_manifest(url: str, target: str, options: Optional[Dict[str, str]] = None) -> Optional[str]:
+def download_iiif_manifest(url: str, target: str, options: Optional[Dict[str, str]] = None, naming_function: Callable[[str], str] = clean_kebab) -> Optional[str]:
     """ Download the element at [URL] and saves it at [TARGET] using plain-text writing. [OPTIONS] are fed to
         the headers. In case of failure, print the exception and return None. The manifest is read and the data is
         compiled as a CSV
@@ -97,27 +145,63 @@ def download_iiif_manifest(url: str, target: str, options: Optional[Dict[str, st
     headers.update(options or {})
     try:
         response = requests.get(url, headers=headers)
+        if response.status_code == 429:
+            time = 60 * random.randint(1, 10)
+            print(f"Waiting for {time/60} following a 429 code.")
+            time.sleep(time)
+            return download_iiif_manifest(url, target, options, naming_function)
         response.raise_for_status()
         j = response.json()
     except Exception as E:
         print(E)
         return None
     rows = []
-    dirname = clean_kebab(j["label"])
+
+    def _get_label(obj):
+        """ This provides some from of resistance to APIv3 of Gallica"""
+        if isinstance(obj["label"], str):
+            return obj["label"]
+        elif isinstance(obj["label"], dict):
+            for key in obj["label"]:
+                if isinstance(obj["label"][key], str):
+                    return obj["label"][key]
+                elif isinstance(obj["label"][key], list):
+                    return obj["label"][key][0]
+
+    if dirname := _get_label(j):
+        dirname = naming_function(dirname, fallback=j)
+    else:
+        raise ValueError(f"No label in {url}")
+    print()
     if "items" in j:
         for idx, element in enumerate(j["items"]):
-            rows.append([element["items"][0]["items"][0]["body"]["id"], dirname, f"f{idx}-"+clean_kebab(element["label"])])
+            rows.append(
+                [element["items"][0]["items"][0]["body"]["id"], dirname, f"f{idx}-" + clean_kebab(_get_label(element))])
     elif "sequences" in j:
         for idx, canvas in enumerate(j["sequences"][0]["canvases"]):
             elm = cleverer_manifest_parsing(canvas["images"][0])
             if elm:
-                rows.append([elm, dirname, f"f{idx}-"+clean_kebab(canvas["label"])])
+                rows.append([elm, dirname, f"f{idx}-" + clean_kebab(_get_label(canvas))])
 
     with open(target, 'w') as handle:
         writer = csv.writer(handle)
         writer.writerows(rows)
 
     return url
+
+
+def check_parsable(filepath):
+    """ Check that [FILEPATH] XML ALTO is parsable
+
+    :param filepath: ALTO file to check
+    :param ratio: Float (Percent) or Int (Absolute) threshold
+    :return: True if the file has above N lines, False if it needs to be OCRized
+    """
+    try:
+        xml = ET.parse(filepath)
+        return True
+    except Exception:
+        return False
 
 
 def check_content(filepath, ratio: Union[int, float] = 1):
@@ -134,10 +218,13 @@ def check_content(filepath, ratio: Union[int, float] = 1):
     except Exception:
         return False
     data = []
+    if len(xml.xpath("//a:TextLine", namespaces={"a": "http://www.loc.gov/standards/alto/ns-v4#"})) == 0:
+        return True
+
     for content in xml.xpath("//a:String/@CONTENT", namespaces={"a": "http://www.loc.gov/standards/alto/ns-v4#"}):
         data.append(int(bool(str(content))))
-    if len(data) == 0:  # The document has no lines
-        return True
+    if len(data) == 0:  # The document has no line processed
+        return False
     elif isinstance(ratio, int):
         return sum(data) >= ratio
     elif isinstance(ratio, float):
@@ -192,7 +279,7 @@ def batchify_textfile(filepath: str, batch_size: int = 100):
     """
     with open(filepath) as f:
         text = f.read().split()
-    return [text[n:n+batch_size] for n in range(0, len(text), batch_size)]
+    return [text[n:n + batch_size] for n in range(0, len(text), batch_size)]
 
 
 def change_ext(filepath: str, new_ext: str) -> str:
@@ -276,7 +363,7 @@ def pdf_extract(pdf_path: str, start_on: int = 0, scheme_string: Optional[str | 
     out = []
     for i in range(start_on, n_pages):
         page = doc.load_page(i)
-        pix = page.get_pixmap(matrix=fitz.Matrix(300 / 72, 300 / 72)) # scaling dpi
+        pix = page.get_pixmap(matrix=fitz.Matrix(300 / 72, 300 / 72))  # scaling dpi
         local_targ = scheme_string.format(i)
         pix.save(local_targ)
         out.append(str(local_targ))
@@ -336,10 +423,12 @@ def simple_args_kwargs_wrapper(function, **kwargs):
     >>> wrapped_sort([1, 2, 3])
     [3, 2, 1]
     """
+
     def wrapped(args):
         if isinstance(args, tuple):
             return function(*args, **kwargs)
         return function(args, **kwargs)
+
     return wrapped
 
 
@@ -379,7 +468,7 @@ def cleverer_manifest_parsing(image: Dict[str, Any], head_check: bool = False) -
                             return image_url + '.' + image_format
                         return image['resource']['@id']
                     return image['resource']['@id']
-            return image_url+".jpg"
+            return image_url + ".jpg"
         return image['resource']['@id']
     return None
 

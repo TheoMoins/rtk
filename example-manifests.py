@@ -16,9 +16,24 @@ from rtk.task import DownloadIIIFImageTask, KrakenAltoCleanUpCommand, ClearFileC
     DownloadIIIFManifestTask, YALTAiCommand, KrakenRecognizerCommand, ExtractZoneAltoCommand
 from rtk import utils
 
-batches = utils.batchify_textfile("manifests.txt", batch_size=2)
+
+path_local = "/home/tmoins/Documents/WPC1/rtk/"
+path_serveur = "/home/theo/miniconda3/envs/"
+
+run_on_server = False
+path = path_serveur if run_on_server else path_local
+
+batches = utils.batchify_textfile(path+"manifest_test.txt", batch_size=1)
 from re import sub
 
+import torch
+torch.manual_seed(0)
+
+import numpy as np
+np.random.seed(0)
+
+import random
+random.seed(0)
 
 def kebab(s):
     return sub(r"https?-", "", '-'.join(
@@ -52,15 +67,17 @@ for batch in batches:
     print("[Task] Segment")
     yaltai = YALTAiCommand(
         dl.output_files,
-        binary="yaltaienv/bin/yaltai",
-        device="cuda:0",
-        yolo_model="GallicorporaSegmentation.pt",
-        raise_on_error=True,
+        binary=path+"yaltaienv/bin/yaltai",
+        device="cpu",
+        yolo_model="models/CapricciosaN.pt",
+        line_model="models/baseline_ms_medieval.mlmodel",
+        raise_on_error=False,
         allow_failure=False,
-        multiprocess=4,  # GPU Memory // 5gb
+        multiprocess=10,
         check_content=False
     )
     yaltai.process()
+
 
     # Clean-up the relative filepath of Kraken Serialization
     print("[Task] Clean-Up Serialization")
@@ -71,13 +88,14 @@ for batch in batches:
     print("[Task] OCR")
     kraken = KrakenRecognizerCommand(
         yaltai.output_files,
-        binary="yaltaienv/bin/kraken",
+        binary=path+"yaltaienv/bin/kraken",
         device="cpu",
-        model="catmus-medieval.mlmodel",
-        multiprocess=8,  # GPU Memory // 3gb
+        model="models/catmus-medieval.mlmodel",
+        multiprocess=1,
         check_content=False
     )
     kraken.process()
+
 
     print("[Task] Remove images")
     # cf = ClearFileCommand(dl.output_files, multiprocess=4).process()
